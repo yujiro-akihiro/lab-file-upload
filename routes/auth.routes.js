@@ -1,10 +1,8 @@
 const router = require("express").Router();
 const mongoose = require("mongoose");
 
-// ℹ️ Handles password encryption
+// Handles password encryption
 const bcryptjs = require("bcryptjs");
-
-// How many rounds should bcrypt run the salt (default [10 - 12 rounds])
 const saltRounds = 10;
 
 // Require the User model in order to interact with the database
@@ -13,17 +11,21 @@ const User = require("../models/User.model");
 // require (import) middleware functions
 const { isLoggedIn, isLoggedOut } = require("../middleware/route-guard.js");
 
+// Import the cloudinary configuration
+const fileUploader = require('../config/cloudinary.config');
+
 ////////////////////////////////////////////////////////////////////////
-///////////////////////////// SIGNUP //////////////////////////////////
+///////////////////////////// SIGNUP ///////////////////////////////////
 ////////////////////////////////////////////////////////////////////////
 
 // .get() route ==> to display the signup form to users
 router.get("/signup", isLoggedOut, (req, res) => res.render("auth/signup"));
 
 // .post() route ==> to process form data
-router.post("/signup", isLoggedOut, (req, res, next) => {
+router.post("/signup", isLoggedOut, fileUploader.single('profilePic'), (req, res, next) => {
   const { username, email, password } = req.body;
 
+  // Validate mandatory fields
   if (!username || !email || !password) {
     res.render("auth/signup", {
       errorMessage: "All fields are mandatory. Please provide your username, email and password."
@@ -31,7 +33,7 @@ router.post("/signup", isLoggedOut, (req, res, next) => {
     return;
   }
 
-  // make sure passwords are strong:
+  // Validate password strength
   const regex = /(?=.*\d)(?=.*[a-z])(?=.*[A-Z]).{6,}/;
   if (!regex.test(password)) {
     res.status(500).render("auth/signup", {
@@ -41,6 +43,7 @@ router.post("/signup", isLoggedOut, (req, res, next) => {
     return;
   }
 
+  // Hash the password and create a new user
   bcryptjs
     .genSalt(saltRounds)
     .then((salt) => bcryptjs.hash(password, salt))
@@ -48,14 +51,11 @@ router.post("/signup", isLoggedOut, (req, res, next) => {
       return User.create({
         username,
         email,
-        // passwordHash => this is the key from the User model
-        //     ^
-        //     |            |--> this is placeholder (how we named returning value from the previous method (.hash()))
-        passwordHash: hashedPassword
+        passwordHash: hashedPassword,
+        profilePic: req.file ? req.file.path : '/images/default-profile.png' // Save profile picture URL or default
       });
     })
     .then((userFromDB) => {
-      // console.log("Newly created user is: ", userFromDB);
       res.redirect("/user-profile");
     })
     .catch((error) => {
@@ -68,7 +68,7 @@ router.post("/signup", isLoggedOut, (req, res, next) => {
       } else {
         next(error);
       }
-    }); // close .catch()
+    });
 });
 
 ////////////////////////////////////////////////////////////////////////
@@ -82,6 +82,7 @@ router.get("/login", isLoggedOut, (req, res) => res.render("auth/login"));
 router.post("/login", isLoggedOut, (req, res, next) => {
   const { email, password } = req.body;
 
+  // Validate mandatory fields
   if (email === "" || password === "") {
     res.render("auth/login", {
       errorMessage: "Please enter both, email and password to login."
@@ -89,6 +90,7 @@ router.post("/login", isLoggedOut, (req, res, next) => {
     return;
   }
 
+  // Find user by email and validate password
   User.findOne({ email })
     .then((user) => {
       if (!user) {
@@ -105,16 +107,18 @@ router.post("/login", isLoggedOut, (req, res, next) => {
 });
 
 ////////////////////////////////////////////////////////////////////////
-///////////////////////////// LOGOUT ////////////////////////////////////
+///////////////////////////// LOGOUT ///////////////////////////////////
 ////////////////////////////////////////////////////////////////////////
 
+// .post() route ==> to log out the user
 router.post("/logout", isLoggedIn, (req, res) => {
   req.session.destroy();
   res.redirect("/");
 });
 
+// .get() route ==> to display the user profile
 router.get("/user-profile", isLoggedIn, (req, res) => {
-  res.render("users/user-profile");
+  res.render("users/user-profile", { user: req.session.currentUser }); // Pass the user data to the profile view
 });
 
 module.exports = router;
